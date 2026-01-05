@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import './Admin.css';
 
 export default function Admin() {
@@ -6,14 +7,46 @@ export default function Admin() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const navigate = useNavigate();
+
+  const getToken = () => localStorage.getItem('admin_token');
 
   useEffect(() => {
-    fetchOrders();
+    verifyAuth();
   }, []);
+
+  const verifyAuth = async () => {
+    const token = getToken();
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/verify', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) {
+        localStorage.removeItem('admin_token');
+        navigate('/login');
+        return;
+      }
+      fetchOrders();
+    } catch {
+      navigate('/login');
+    }
+  };
 
   const fetchOrders = async () => {
     try {
-      const response = await fetch('/api/orders');
+      const response = await fetch('/api/orders', {
+        headers: { 'Authorization': `Bearer ${getToken()}` }
+      });
+      if (response.status === 401) {
+        localStorage.removeItem('admin_token');
+        navigate('/login');
+        return;
+      }
       if (!response.ok) throw new Error('Failed to fetch orders');
       const data = await response.json();
       setOrders(data);
@@ -28,10 +61,18 @@ export default function Admin() {
     try {
       const response = await fetch(`/api/orders/${orderId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getToken()}`
+        },
         body: JSON.stringify({ status: newStatus })
       });
       
+      if (response.status === 401) {
+        localStorage.removeItem('admin_token');
+        navigate('/login');
+        return;
+      }
       if (!response.ok) throw new Error('Failed to update order');
       
       setOrders(orders.map(order => 
@@ -44,6 +85,11 @@ export default function Admin() {
     } catch (err) {
       alert('Error updating order: ' + err.message);
     }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('admin_token');
+    navigate('/login');
   };
 
   const getStatusColor = (status) => {
@@ -82,13 +128,23 @@ export default function Admin() {
     <div className="admin-page">
       <header className="admin-header">
         <h1>Orders Dashboard</h1>
-        <button onClick={fetchOrders} className="btn btn-secondary refresh-btn">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M23 4v6h-6M1 20v-6h6"/>
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-          </svg>
-          Refresh
-        </button>
+        <div className="admin-actions">
+          <button onClick={fetchOrders} className="btn btn-secondary refresh-btn">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M23 4v6h-6M1 20v-6h6"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+            Refresh
+          </button>
+          <button onClick={handleLogout} className="btn btn-secondary logout-btn">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            Logout
+          </button>
+        </div>
       </header>
 
       {error && (
@@ -112,7 +168,7 @@ export default function Admin() {
         </div>
         <div className="stat-card">
           <div className="stat-value">
-            ${orders.filter(o => o.status !== 'cancelled').reduce((sum, o) => sum + o.price, 0) / 100}
+            ${(orders.filter(o => o.status !== 'cancelled').reduce((sum, o) => sum + o.price, 0) / 100).toLocaleString()}
           </div>
           <div className="stat-label">Revenue</div>
         </div>
@@ -195,9 +251,13 @@ export default function Admin() {
             
             <div className="detail-section">
               <h3>Order</h3>
+              <p><strong>ID:</strong> {selectedOrder.id}</p>
               <p><strong>Package:</strong> {selectedOrder.package_name}</p>
               <p><strong>Amount:</strong> ${(selectedOrder.price / 100).toLocaleString()}</p>
               <p><strong>Created:</strong> {formatDate(selectedOrder.created_at)}</p>
+              {selectedOrder.stripe_payment_intent && (
+                <p><strong>Stripe:</strong> {selectedOrder.stripe_payment_intent}</p>
+              )}
             </div>
             
             {selectedOrder.project_description && (

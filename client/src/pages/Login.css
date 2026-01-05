@@ -1,0 +1,110 @@
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+}
+
+.login-container {
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
+  animation: fadeInUp 0.8s ease forwards;
+}
+
+.login-icon {
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 30px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-icon svg {
+  width: 36px;
+  height: 36px;
+  color: var(--color-yellow);
+}
+
+.login-page h1 {
+  font-family: var(--font-display);
+  font-size: 2.5rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
+  margin-bottom: 10px;
+  text-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.login-subtitle {
+  font-size: 1rem;
+  opacity: 0.7;
+  margin-bottom: 40px;
+}
+
+.login-form {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 40px;
+}
+
+.login-form .form-input {
+  width: 100%;
+  padding: 16px 20px;
+  font-size: 1rem;
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  color: var(--color-white);
+  text-align: center;
+  letter-spacing: 0.1em;
+}
+
+.login-form .form-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.login-form .form-input:focus {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: var(--color-white);
+  outline: none;
+}
+
+.login-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px;
+  background: rgba(255, 100, 100, 0.2);
+  border: 1px solid rgba(255, 100, 100, 0.4);
+  margin-bottom: 20px;
+  font-size: 0.9rem;
+}
+
+.login-error svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: #ff6464;
+}
+
+.login-btn {
+  width: 100%;
+  margin-top: 10px;
+}
+
+@media (max-width: 480px) {
+  .login-form {
+    padding: 30px 20px;
+  }
+  
+  .login-page h1 {
+    font-size: 2rem;
+  }
+}

@@ -21,10 +21,26 @@
   text-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 
-.refresh-btn {
+.admin-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.refresh-btn,
+.logout-btn {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.logout-btn {
+  border-color: #ff6464;
+  color: #ff6464;
+}
+
+.logout-btn:hover {
+  background: #ff6464;
+  color: var(--color-dark);
 }
 
 .error-banner {

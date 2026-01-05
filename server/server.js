@@ -6,9 +6,49 @@ import { v4 as uuidv4 } from 'uuid';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 dotenv.config();
+
+// Simple JWT-like token handling
+const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+
+function createToken(payload) {
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const body = Buffer.from(JSON.stringify({ ...payload, exp: Date.now() + 24 * 60 * 60 * 1000 })).toString('base64url');
+  const signature = crypto.createHmac('sha256', JWT_SECRET).update(`${header}.${body}`).digest('base64url');
+  return `${header}.${body}.${signature}`;
+}
+
+function verifyToken(token) {
+  try {
+    const [header, body, signature] = token.split('.');
+    const expectedSig = crypto.createHmac('sha256', JWT_SECRET).update(`${header}.${body}`).digest('base64url');
+    if (signature !== expectedSig) return null;
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString());
+    if (payload.exp < Date.now()) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+// Auth middleware
+function requireAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const token = authHeader.slice(7);
+  const payload = verifyToken(token);
+  if (!payload) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+  req.user = payload;
+  next();
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -151,6 +191,22 @@ if (process.env.NODE_ENV === 'production') {
 
 // ============ API Routes ============
 
+// Login
+app.post('/api/login', (req, res) => {
+  const { password } = req.body;
+  if (password === ADMIN_PASSWORD) {
+    const token = createToken({ role: 'admin' });
+    res.json({ token });
+  } else {
+    res.status(401).json({ error: 'Invalid password' });
+  }
+});
+
+// Verify token
+app.get('/api/verify', requireAuth, (req, res) => {
+  res.json({ valid: true, user: req.user });
+});
+
 // Get all packages
 app.get('/api/packages', (req, res) => {
   try {
@@ -286,8 +342,8 @@ app.get('/api/orders/session/:sessionId', (req, res) => {
   }
 });
 
-// Get all orders (admin)
-app.get('/api/orders', (req, res) => {
+// Get all orders (admin - protected)
+app.get('/api/orders', requireAuth, (req, res) => {
   try {
     const orders = dbAll('SELECT * FROM orders ORDER BY created_at DESC');
     res.json(orders);
@@ -297,8 +353,8 @@ app.get('/api/orders', (req, res) => {
   }
 });
 
-// Update order status (admin)
-app.patch('/api/orders/:id', (req, res) => {
+// Update order status (admin - protected)
+app.patch('/api/orders/:id', requireAuth, (req, res) => {
   try {
     const { status } = req.body;
     const result = dbRun('UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
