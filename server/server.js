@@ -1,10 +1,11 @@
 import express from 'express';
 import cors from 'cors';
 import Stripe from 'stripe';
-import Database from 'better-sqlite3';
+import initSqlJs from 'sql.js';
 import { v4 as uuidv4 } from 'uuid';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 dotenv.config();
@@ -18,100 +19,119 @@ const PORT = process.env.PORT || 3001;
 // Initialize Stripe
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_your_key_here');
 
-// Initialize SQLite Database
-const db = new Database(path.join(__dirname, 'orders.db'));
+// Database path - use /home for Azure persistence
+const DB_PATH = process.env.WEBSITE_SITE_NAME 
+  ? '/home/data/orders.db'
+  : path.join(__dirname, 'orders.db');
 
-// Create tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS orders (
-    id TEXT PRIMARY KEY,
-    customer_name TEXT NOT NULL,
-    customer_email TEXT NOT NULL,
-    customer_phone TEXT,
-    package_id TEXT NOT NULL,
-    package_name TEXT NOT NULL,
-    price INTEGER NOT NULL,
-    project_description TEXT,
-    status TEXT DEFAULT 'pending',
-    stripe_session_id TEXT,
-    stripe_payment_intent TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
+// Ensure data directory exists
+const dbDir = path.dirname(DB_PATH);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
+let db;
+
+// Initialize SQL.js and database
+async function initDatabase() {
+  const SQL = await initSqlJs();
   
-  CREATE TABLE IF NOT EXISTS packages (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT,
-    price INTEGER NOT NULL,
-    features TEXT,
-    delivery_days INTEGER,
-    active INTEGER DEFAULT 1
-  );
-`);
-
-// Seed default packages if empty
-const packageCount = db.prepare('SELECT COUNT(*) as count FROM packages').get();
-if (packageCount.count === 0) {
-  const insertPackage = db.prepare(`
-    INSERT INTO packages (id, name, description, price, features, delivery_days)
-    VALUES (?, ?, ?, ?, ?, ?)
+  // Load existing database or create new
+  if (fs.existsSync(DB_PATH)) {
+    const buffer = fs.readFileSync(DB_PATH);
+    db = new SQL.Database(buffer);
+  } else {
+    db = new SQL.Database();
+  }
+  
+  // Create tables
+  db.run(`
+    CREATE TABLE IF NOT EXISTS orders (
+      id TEXT PRIMARY KEY,
+      customer_name TEXT NOT NULL,
+      customer_email TEXT NOT NULL,
+      customer_phone TEXT,
+      package_id TEXT NOT NULL,
+      package_name TEXT NOT NULL,
+      price INTEGER NOT NULL,
+      project_description TEXT,
+      status TEXT DEFAULT 'pending',
+      stripe_session_id TEXT,
+      stripe_payment_intent TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
   `);
   
-  insertPackage.run(
-    'starter',
-    'Starter',
-    'Perfect for small businesses and personal projects',
-    49900, // $499.00 in cents
-    JSON.stringify([
-      'Single page design',
-      'Mobile responsive',
-      'Basic SEO setup',
-      '2 revision rounds',
-      '5-day delivery'
-    ]),
-    5
-  );
+  db.run(`
+    CREATE TABLE IF NOT EXISTS packages (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      price INTEGER NOT NULL,
+      features TEXT,
+      delivery_days INTEGER,
+      active INTEGER DEFAULT 1
+    )
+  `);
   
-  insertPackage.run(
-    'professional',
-    'Professional',
-    'Complete solution for growing businesses',
-    149900, // $1,499.00
-    JSON.stringify([
-      'Up to 5 pages',
-      'Custom UI/UX design',
-      'Advanced animations',
-      'SEO optimization',
-      'Social media kit',
-      '5 revision rounds',
-      '14-day delivery'
-    ]),
-    14
-  );
+  // Seed default packages if empty
+  const result = db.exec("SELECT COUNT(*) as count FROM packages");
+  const count = result[0]?.values[0]?.[0] || 0;
   
-  insertPackage.run(
-    'enterprise',
-    'Enterprise',
-    'Full-scale digital transformation',
-    399900, // $3,999.00
-    JSON.stringify([
-      'Unlimited pages',
-      'Complete brand identity',
-      'Custom illustrations',
-      'Advanced interactions',
-      'E-commerce ready',
-      'Priority support',
-      'Unlimited revisions',
-      '30-day delivery'
-    ]),
-    30
-  );
+  if (count === 0) {
+    db.run(`INSERT INTO packages (id, name, description, price, features, delivery_days) VALUES (?, ?, ?, ?, ?, ?)`,
+      ['starter', 'Starter', 'Perfect for small businesses and personal projects', 49900,
+       JSON.stringify(['Single page design', 'Mobile responsive', 'Basic SEO setup', '2 revision rounds', '5-day delivery']), 5]);
+    
+    db.run(`INSERT INTO packages (id, name, description, price, features, delivery_days) VALUES (?, ?, ?, ?, ?, ?)`,
+      ['professional', 'Professional', 'Complete solution for growing businesses', 149900,
+       JSON.stringify(['Up to 5 pages', 'Custom UI/UX design', 'Advanced animations', 'SEO optimization', 'Social media kit', '5 revision rounds', '14-day delivery']), 14]);
+    
+    db.run(`INSERT INTO packages (id, name, description, price, features, delivery_days) VALUES (?, ?, ?, ?, ?, ?)`,
+      ['enterprise', 'Enterprise', 'Full-scale digital transformation', 399900,
+       JSON.stringify(['Unlimited pages', 'Complete brand identity', 'Custom illustrations', 'Advanced interactions', 'E-commerce ready', 'Priority support', 'Unlimited revisions', '30-day delivery']), 30]);
+    
+    saveDatabase();
+  }
+  
+  console.log('Database initialized');
+}
+
+// Save database to file
+function saveDatabase() {
+  const data = db.export();
+  const buffer = Buffer.from(data);
+  fs.writeFileSync(DB_PATH, buffer);
+}
+
+// Helper to run queries
+function dbAll(sql, params = []) {
+  const stmt = db.prepare(sql);
+  stmt.bind(params);
+  const results = [];
+  while (stmt.step()) {
+    results.push(stmt.getAsObject());
+  }
+  stmt.free();
+  return results;
+}
+
+function dbGet(sql, params = []) {
+  const results = dbAll(sql, params);
+  return results[0] || null;
+}
+
+function dbRun(sql, params = []) {
+  db.run(sql, params);
+  saveDatabase();
+  return { changes: db.getRowsModified() };
 }
 
 // Middleware
+const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: clientUrl,
   credentials: true
 }));
 
@@ -123,7 +143,10 @@ app.use(express.json());
 
 // Serve static files in production
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../client/dist')));
+  const staticPath = process.env.WEBSITE_SITE_NAME 
+    ? path.join(__dirname, 'public')
+    : path.join(__dirname, '../client/dist');
+  app.use(express.static(staticPath));
 }
 
 // ============ API Routes ============
@@ -131,7 +154,7 @@ if (process.env.NODE_ENV === 'production') {
 // Get all packages
 app.get('/api/packages', (req, res) => {
   try {
-    const packages = db.prepare('SELECT * FROM packages WHERE active = 1').all();
+    const packages = dbAll('SELECT * FROM packages WHERE active = 1');
     const formatted = packages.map(pkg => ({
       ...pkg,
       features: JSON.parse(pkg.features),
@@ -147,7 +170,7 @@ app.get('/api/packages', (req, res) => {
 // Get single package
 app.get('/api/packages/:id', (req, res) => {
   try {
-    const pkg = db.prepare('SELECT * FROM packages WHERE id = ?').get(req.params.id);
+    const pkg = dbGet('SELECT * FROM packages WHERE id = ?', [req.params.id]);
     if (!pkg) {
       return res.status(404).json({ error: 'Package not found' });
     }
@@ -167,55 +190,42 @@ app.post('/api/create-checkout-session', async (req, res) => {
   try {
     const { packageId, customerName, customerEmail, customerPhone, projectDescription } = req.body;
     
-    // Validate required fields
     if (!packageId || !customerName || !customerEmail) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
     
-    // Get package
-    const pkg = db.prepare('SELECT * FROM packages WHERE id = ?').get(packageId);
+    const pkg = dbGet('SELECT * FROM packages WHERE id = ?', [packageId]);
     if (!pkg) {
       return res.status(404).json({ error: 'Package not found' });
     }
     
-    // Create order in database
     const orderId = uuidv4();
-    db.prepare(`
-      INSERT INTO orders (id, customer_name, customer_email, customer_phone, package_id, package_name, price, project_description)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(orderId, customerName, customerEmail, customerPhone, packageId, pkg.name, pkg.price, projectDescription);
+    dbRun(`INSERT INTO orders (id, customer_name, customer_email, customer_phone, package_id, package_name, price, project_description)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [orderId, customerName, customerEmail, customerPhone || null, packageId, pkg.name, pkg.price, projectDescription || null]);
     
-    // Create Stripe checkout session
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       mode: 'payment',
       customer_email: customerEmail,
       client_reference_id: orderId,
-      line_items: [
-        {
-          price_data: {
-            currency: 'usd',
-            product_data: {
-              name: `${pkg.name} Design Package`,
-              description: pkg.description,
-              images: ['https://images.unsplash.com/photo-1561070791-2526d30994b5?w=400'],
-            },
-            unit_amount: pkg.price,
+      line_items: [{
+        price_data: {
+          currency: 'usd',
+          product_data: {
+            name: `${pkg.name} Design Package`,
+            description: pkg.description,
           },
-          quantity: 1,
+          unit_amount: pkg.price,
         },
-      ],
-      metadata: {
-        orderId,
-        packageId,
-        customerName,
-      },
-      success_url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/packages`,
+        quantity: 1,
+      }],
+      metadata: { orderId, packageId, customerName },
+      success_url: `${clientUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${clientUrl}/packages`,
     });
     
-    // Update order with session ID
-    db.prepare('UPDATE orders SET stripe_session_id = ? WHERE id = ?').run(session.id, orderId);
+    dbRun('UPDATE orders SET stripe_session_id = ? WHERE id = ?', [session.id, orderId]);
     
     res.json({ sessionId: session.id, url: session.url });
   } catch (error) {
@@ -242,41 +252,30 @@ app.post('/api/webhooks/stripe', async (req, res) => {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
   
-  // Handle the event
   switch (event.type) {
     case 'checkout.session.completed': {
       const session = event.data.object;
       const orderId = session.client_reference_id;
-      
       if (orderId) {
-        db.prepare(`
-          UPDATE orders 
-          SET status = 'paid', stripe_payment_intent = ?, updated_at = CURRENT_TIMESTAMP 
-          WHERE id = ?
-        `).run(session.payment_intent, orderId);
-        
+        dbRun(`UPDATE orders SET status = 'paid', stripe_payment_intent = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+          [session.payment_intent, orderId]);
         console.log(`Order ${orderId} marked as paid`);
       }
       break;
     }
-    
     case 'payment_intent.payment_failed': {
-      const paymentIntent = event.data.object;
-      console.log(`Payment failed: ${paymentIntent.id}`);
+      console.log(`Payment failed: ${event.data.object.id}`);
       break;
     }
-    
-    default:
-      console.log(`Unhandled event type: ${event.type}`);
   }
   
   res.json({ received: true });
 });
 
 // Get order by session ID
-app.get('/api/orders/session/:sessionId', async (req, res) => {
+app.get('/api/orders/session/:sessionId', (req, res) => {
   try {
-    const order = db.prepare('SELECT * FROM orders WHERE stripe_session_id = ?').get(req.params.sessionId);
+    const order = dbGet('SELECT * FROM orders WHERE stripe_session_id = ?', [req.params.sessionId]);
     if (!order) {
       return res.status(404).json({ error: 'Order not found' });
     }
@@ -290,7 +289,7 @@ app.get('/api/orders/session/:sessionId', async (req, res) => {
 // Get all orders (admin)
 app.get('/api/orders', (req, res) => {
   try {
-    const orders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC').all();
+    const orders = dbAll('SELECT * FROM orders ORDER BY created_at DESC');
     res.json(orders);
   } catch (error) {
     console.error('Error fetching orders:', error);
@@ -302,13 +301,12 @@ app.get('/api/orders', (req, res) => {
 app.patch('/api/orders/:id', (req, res) => {
   try {
     const { status } = req.body;
-    const result = db.prepare('UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .run(status, req.params.id);
+    const result = dbRun('UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [status, req.params.id]);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Order not found' });
     }
-    
     res.json({ success: true });
   } catch (error) {
     console.error('Error updating order:', error);
@@ -319,11 +317,20 @@ app.patch('/api/orders/:id', (req, res) => {
 // Catch-all for SPA in production
 if (process.env.NODE_ENV === 'production') {
   app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+    const staticPath = process.env.WEBSITE_SITE_NAME 
+      ? path.join(__dirname, 'public/index.html')
+      : path.join(__dirname, '../client/dist/index.html');
+    res.sendFile(staticPath);
   });
 }
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`API available at http://localhost:${PORT}/api`);
+// Start server after database init
+initDatabase().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log(`API available at http://localhost:${PORT}/api`);
+  });
+}).catch(err => {
+  console.error('Failed to initialize database:', err);
+  process.exit(1);
 });
