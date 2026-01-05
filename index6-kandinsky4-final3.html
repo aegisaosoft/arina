@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Irene Skvorzowa</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: 'Courier New', Courier, monospace;
+            color: #ffffff;
+            background-color: #0da3cd;
+            overflow: hidden;
+        }
+        canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0.6;
+            pointer-events: none;
+            z-index: 0;
+        }
+        header {
+            position: relative;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 50px 60px 100px;
+            box-sizing: border-box;
+            z-index: 1;
+        }
+        .top-section {
+            max-width: 80%;
+        }
+        h1 {
+            font-size: 8vw;
+            font-weight: normal;
+            letter-spacing: -0.02em;
+            margin: 0 0 30px 0;
+            line-height: 0.82;
+            text-transform: uppercase;
+            text-shadow: 0 4px 16px rgba(0,0,0,0.6);
+        }
+        .credit {
+            font-size: 3vw;
+            opacity: 0.95;
+            margin: 0;
+            letter-spacing: 0.05em;
+            text-shadow: 0 3px 12px rgba(0,0,0,0.5);
+        }
+        .bottom-section {
+            align-self: flex-end;
+            text-align: right;
+            max-width: 520px;
+        }
+        .services {
+            font-size: 1.2rem;
+            line-height: 1.6;
+            opacity: 1.0;
+            margin: 0;
+            font-weight: normal;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.6);
+        }
+        .bottom-bar {
+            position: absolute;
+            bottom: 40px;
+            left: 70%;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            gap: 60px;
+            font-size: 1rem;
+            opacity: 1.0;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.6);
+        }
+        .contact-info {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            text-align: left;
+        }
+        .scroll-hint {
+            width: 50px;
+            height: 50px;
+            border: 1px solid rgba(255, 255, 255, 0.9);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: bounce 2s infinite;
+            flex-shrink: 0;
+        }
+        .scroll-hint svg {
+            width: 18px;
+            height: 18px;
+            stroke: #ffffff;
+            stroke-width: 1.5;
+        }
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+        a:hover {
+            opacity: 0.8;
+        }
+        @keyframes bounce {
+            0%, 100% { transform: translateX(0); }
+            50% { transform: translateX(10px); } /* Bounce right */
+        }
+        @media (max-width: 968px) {
+            header { padding: 40px 30px 100px; }
+            h1 { font-size: 11vw; line-height: 0.9; }
+            .credit { font-size: 5vw; }
+            .top-section { margin-left: 6vw; max-width: 100%; }
+            .bottom-section {
+                align-self: center;
+                text-align: center;
+                max-width: 100%;
+            }
+            .services { font-size: 1.1rem; }
+            .bottom-bar {
+                flex-direction: column;
+                gap: 30px;
+            }
+            .contact-info {
+                align-items: center;
+                text-align: center;
+            }
+            @keyframes bounce {
+                0%, 100% { transform: translateY(0); }
+                50% { transform: translateY(-10px); }
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="bg"></canvas>
+
+    <header>
+        <div class="top-section">
+            <h1>&nbsp;Multi-<br>disciplinary<br>&nbsp;Design</h1>
+            <div class="credit">done by Irene Skvorzowa</div>
+        </div>
+        
+        <div class="bottom-section">
+            <p class="services">
+                Crafting thoughtful digital experiences through web design, UI/UX, branding, and creative direction. 
+                Focused on simplicity, elegance, and meaningful interactions.
+            </p>
+        </div>
+        
+        <div class="bottom-bar">
+            <div class="scroll-hint">
+                <!-- Dedicated right-pointing arrow SVG -->
+                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M5 12H19M19 12L12 5M19 12L12 19" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <div class="contact-info">
+                <a href="mailto:irene.skvorzowa@crystalprismsoftware.com">irene.skvorzowa@crystalprismsoftware.com</a>
+                <div>+1 (201) 914-4028</div>
+            </div>
+        </div>
+    </header>
+
+    <script>
+        const canvas = document.getElementById('bg');
+        const ctx = canvas.getContext('2d');
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        resize();
+        window.addEventListener('resize', resize);
+
+        let shapes = [];
+        const vividColors = [
+            '#ff33cc', '#00ffff', '#66ff99', '#ffff66', '#ff66ff',
+            '#33ffff', '#ff9966', '#ff3399', '#00ffcc', '#ffcc33',
+            '#ccff66', '#ff99ff', '#0da3cd'
+        ];
+
+        function createShape() {
+            const type = Math.floor(Math.random() * 4);
+            const shape = {
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                vx: (Math.random() - 0.5) * 0.3,
+                vy: (Math.random() - 0.5) * 0.3,
+                size: 40 + Math.random() * 60,
+                color: vividColors[Math.floor(Math.random() * vividColors.length)] + 'd0',
+                rotation: Math.random() * Math.PI * 2,
+                rotSpeed: (Math.random() - 0.5) * 0.006,
+                pulse: Math.random() * 0.1 + 0.95,
+                type
+            };
+            shapes.push(shape);
+        }
+
+        for (let i = 0; i < 18; i++) createShape();
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            shapes.forEach(shape => {
+                ctx.save();
+                ctx.translate(shape.x, shape.y);
+                ctx.rotate(shape.rotation);
+                ctx.globalAlpha = 0.85;
+
+                ctx.fillStyle = shape.color;
+                ctx.strokeStyle = shape.color;
+                ctx.lineWidth = 3;
+
+                const pulseSize = shape.size * shape.pulse;
+
+                if (shape.type === 0) {
+                    ctx.beginPath();
+                    ctx.arc(0, 0, pulseSize, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (shape.type === 1) {
+                    ctx.fillRect(-pulseSize, -pulseSize, pulseSize * 2, pulseSize * 2);
+                } else if (shape.type === 2) {
+                    ctx.fillRect(-pulseSize * 1.5, -pulseSize / 2, pulseSize * 3, pulseSize);
+                } else if (shape.type === 3) {
+                    ctx.beginPath();
+                    ctx.moveTo(-pulseSize * 1.5, 0);
+                    ctx.lineTo(pulseSize * 1.5, 0);
+                    ctx.stroke();
+                }
+
+                ctx.restore();
+
+                shape.x += shape.vx;
+                shape.y += shape.vy;
+                shape.rotation += shape.rotSpeed;
+                shape.pulse = 0.95 + Math.sin(Date.now() * 0.001 + shape.size) * 0.1;
+
+                if (shape.x < -100) shape.x = canvas.width + 100;
+                if (shape.x > canvas.width + 100) shape.x = -100;
+                if (shape.y < -100) shape.y = canvas.height + 100;
+                if (shape.y > canvas.height + 100) shape.y = -100;
+            });
+
+            if (Math.random() < 0.005) createShape();
+
+            requestAnimationFrame(draw);
+        }
+
+        draw();
+    </script>
+</body>
+</html>
