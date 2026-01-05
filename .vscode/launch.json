@@ -15,41 +15,19 @@
       "skipFiles": ["<node_internals>/**"]
     },
     {
-      "name": "Server: Attach",
-      "type": "node",
-      "request": "attach",
-      "port": 9229,
-      "restart": true,
-      "skipFiles": ["<node_internals>/**"]
+      "name": "Client: Chrome",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/client/src"
     },
     {
-      "name": "Client: Debug Chrome",
+      "name": "Full Stack",
       "type": "chrome",
       "request": "launch",
       "url": "http://localhost:5173",
       "webRoot": "${workspaceFolder}/client/src",
-      "sourceMapPathOverrides": {
-        "webpack:///src/*": "${webRoot}/*"
-      }
-    },
-    {
-      "name": "Client: Debug Edge",
-      "type": "msedge",
-      "request": "launch",
-      "url": "http://localhost:5173",
-      "webRoot": "${workspaceFolder}/client/src"
-    }
-  ],
-  "compounds": [
-    {
-      "name": "Full Stack: Server + Chrome",
-      "configurations": ["Server: Debug", "Client: Debug Chrome"],
-      "stopAll": true
-    },
-    {
-      "name": "Full Stack: Server + Edge",
-      "configurations": ["Server: Debug", "Client: Debug Edge"],
-      "stopAll": true
+      "preLaunchTask": "Dev: Full Stack"
     }
   ]
 }
