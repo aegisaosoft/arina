@@ -115,6 +115,20 @@ async function initDatabase() {
     )
   `);
   
+  db.run(`
+    CREATE TABLE IF NOT EXISTS donations (
+      id TEXT PRIMARY KEY,
+      donor_name TEXT,
+      donor_email TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      message TEXT,
+      status TEXT DEFAULT 'pending',
+      stripe_session_id TEXT,
+      stripe_payment_intent TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  
   // Seed default packages if empty
   const result = db.exec("SELECT COUNT(*) as count FROM packages");
   const count = result[0]?.values[0]?.[0] || 0;
@@ -311,11 +325,19 @@ app.post('/api/webhooks/stripe', async (req, res) => {
   switch (event.type) {
     case 'checkout.session.completed': {
       const session = event.data.object;
-      const orderId = session.client_reference_id;
-      if (orderId) {
-        dbRun(`UPDATE orders SET status = 'paid', stripe_payment_intent = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-          [session.payment_intent, orderId]);
-        console.log(`Order ${orderId} marked as paid`);
+      const referenceId = session.client_reference_id;
+      const isDonation = session.metadata?.type === 'donation';
+      
+      if (referenceId) {
+        if (isDonation) {
+          dbRun(`UPDATE donations SET status = 'completed', stripe_payment_intent = ? WHERE id = ?`,
+            [session.payment_intent, referenceId]);
+          console.log(`Donation ${referenceId} completed`);
+        } else {
+          dbRun(`UPDATE orders SET status = 'paid', stripe_payment_intent = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            [session.payment_intent, referenceId]);
+          console.log(`Order ${referenceId} marked as paid`);
+        }
       }
       break;
     }
@@ -367,6 +389,96 @@ app.patch('/api/orders/:id', requireAuth, (req, res) => {
   } catch (error) {
     console.error('Error updating order:', error);
     res.status(500).json({ error: 'Failed to update order' });
+  }
+});
+
+// ============ Donation Routes ============
+
+// Create donation checkout session
+app.post('/api/create-donation-session', async (req, res) => {
+  try {
+    const { amount, donorName, donorEmail, message } = req.body;
+    
+    if (!amount || !donorEmail) {
+      return res.status(400).json({ error: 'Amount and email are required' });
+    }
+    
+    // Amount is already in cents from the frontend
+    const amountInCents = Math.round(parseFloat(amount));
+    
+    if (amountInCents < 100) {
+      return res.status(400).json({ error: 'Minimum donation is $1' });
+    }
+    
+    if (amountInCents > 99999900) {
+      return res.status(400).json({ error: 'Maximum donation is $999,999' });
+    }
+    
+    const donationId = uuidv4();
+    dbRun(`INSERT INTO donations (id, donor_name, donor_email, amount, message)
+           VALUES (?, ?, ?, ?, ?)`,
+      [donationId, donorName || 'Anonymous', donorEmail, amountInCents, message || null]);
+    
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      mode: 'payment',
+      customer_email: donorEmail,
+      client_reference_id: donationId,
+      submit_type: 'donate',
+      line_items: [{
+        price_data: {
+          currency: 'usd',
+          product_data: {
+            name: 'Donation to Irene Design Studio',
+            description: message ? `Message: ${message.substring(0, 100)}` : 'Thank you for your support!',
+          },
+          unit_amount: amountInCents,
+        },
+        quantity: 1,
+      }],
+      metadata: { donationId, donorName: donorName || 'Anonymous', type: 'donation' },
+      success_url: `${clientUrl}/donate/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${clientUrl}/donate`,
+    });
+    
+    dbRun('UPDATE donations SET stripe_session_id = ? WHERE id = ?', [session.id, donationId]);
+    
+    res.json({ sessionId: session.id, url: session.url });
+  } catch (error) {
+    console.error('Error creating donation session:', error);
+    res.status(500).json({ error: 'Failed to create donation session' });
+  }
+});
+
+// Get donation by session ID
+app.get('/api/donations/session/:sessionId', (req, res) => {
+  try {
+    const donation = dbGet('SELECT * FROM donations WHERE stripe_session_id = ?', [req.params.sessionId]);
+    if (!donation) {
+      return res.status(404).json({ error: 'Donation not found' });
+    }
+    res.json({
+      ...donation,
+      amountFormatted: `$${(donation.amount / 100).toFixed(2)}`
+    });
+  } catch (error) {
+    console.error('Error fetching donation:', error);
+    res.status(500).json({ error: 'Failed to fetch donation' });
+  }
+});
+
+// Get all donations (admin - protected)
+app.get('/api/donations', requireAuth, (req, res) => {
+  try {
+    const donations = dbAll('SELECT * FROM donations ORDER BY created_at DESC');
+    const formatted = donations.map(d => ({
+      ...d,
+      amountFormatted: `$${(d.amount / 100).toFixed(2)}`
+    }));
+    res.json(formatted);
+  } catch (error) {
+    console.error('Error fetching donations:', error);
+    res.status(500).json({ error: 'Failed to fetch donations' });
   }
 });
 

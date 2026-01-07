@@ -68,6 +68,26 @@
   opacity: 1;
 }
 
+.nav-link.donate-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.nav-link.donate-link svg {
+  transition: all var(--transition-fast);
+}
+
+.nav-link.donate-link:hover svg {
+  stroke: var(--color-secondary, #ff33cc);
+  transform: scale(1.1);
+}
+
+.nav-link.donate-link.active svg {
+  fill: var(--color-secondary, #ff33cc);
+  stroke: var(--color-secondary, #ff33cc);
+}
+
 .nav-cta {
   padding: 12px 24px;
   background: var(--color-secondary);

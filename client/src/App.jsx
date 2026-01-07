@@ -5,6 +5,8 @@ import Home from './pages/Home';
 import Packages from './pages/Packages';
 import Order from './pages/Order';
 import Success from './pages/Success';
+import Donate from './pages/Donate';
+import DonateSuccess from './pages/DonateSuccess';
 import Login from './pages/Login';
 import Admin from './pages/Admin';
 import './styles/global.css';
@@ -21,6 +23,8 @@ export default function App() {
             <Route path="/packages" element={<Packages />} />
             <Route path="/order/:packageId" element={<Order />} />
             <Route path="/success" element={<Success />} />
+            <Route path="/donate" element={<Donate />} />
+            <Route path="/donate/success" element={<DonateSuccess />} />
             <Route path="/login" element={<Login />} />
             <Route path="/admin" element={<Admin />} />
           </Routes>
