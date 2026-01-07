@@ -444,7 +444,7 @@ export default function Admin() {
             )}
           </div>
         </>
-      ) : (
+      ) : activeTab === 'donations' ? (
         <>
           <div className="admin-stats">
             <div className="stat-card">
