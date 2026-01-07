@@ -56,8 +56,18 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Initialize Stripe
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_your_key_here');
+// Dynamic Stripe initialization - gets key from DB or env
+function getStripe() {
+  const setting = db ? dbGet('SELECT value FROM settings WHERE key = ?', ['stripe_secret_key']) : null;
+  const secretKey = setting?.value || process.env.STRIPE_SECRET_KEY || 'sk_test_your_key_here';
+  return new Stripe(secretKey);
+}
+
+// Get publishable key for frontend
+function getPublishableKey() {
+  const setting = db ? dbGet('SELECT value FROM settings WHERE key = ?', ['stripe_publishable_key']) : null;
+  return setting?.value || process.env.VITE_STRIPE_PUBLISHABLE_KEY || '';
+}
 
 // Database path - use /home for Azure persistence
 const DB_PATH = process.env.WEBSITE_SITE_NAME 
@@ -126,6 +136,14 @@ async function initDatabase() {
       stripe_session_id TEXT,
       stripe_payment_intent TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  
+  db.run(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `);
   
@@ -274,6 +292,7 @@ app.post('/api/create-checkout-session', async (req, res) => {
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [orderId, customerName, customerEmail, customerPhone || null, packageId, pkg.name, pkg.price, projectDescription || null]);
     
+    const stripe = getStripe();
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       mode: 'payment',
@@ -307,12 +326,14 @@ app.post('/api/create-checkout-session', async (req, res) => {
 // Stripe webhook
 app.post('/api/webhooks/stripe', async (req, res) => {
   const sig = req.headers['stripe-signature'];
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const webhookSecretSetting = dbGet('SELECT value FROM settings WHERE key = ?', ['stripe_webhook_secret']);
+  const webhookSecret = webhookSecretSetting?.value || process.env.STRIPE_WEBHOOK_SECRET;
   
   let event;
   
   try {
-    if (webhookSecret) {
+    if (webhookSecret && sig) {
+      const stripe = getStripe();
       event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
     } else {
       event = JSON.parse(req.body.toString());
@@ -350,13 +371,32 @@ app.post('/api/webhooks/stripe', async (req, res) => {
   res.json({ received: true });
 });
 
-// Get order by session ID
-app.get('/api/orders/session/:sessionId', (req, res) => {
+// Get order by session ID - also verifies payment status with Stripe
+app.get('/api/orders/session/:sessionId', async (req, res) => {
   try {
     const order = dbGet('SELECT * FROM orders WHERE stripe_session_id = ?', [req.params.sessionId]);
     if (!order) {
       return res.status(404).json({ error: 'Order not found' });
     }
+    
+    // If order is still pending, check Stripe for actual payment status
+    if (order.status === 'pending') {
+      try {
+        const stripe = getStripe();
+        const session = await stripe.checkout.sessions.retrieve(req.params.sessionId);
+        
+        if (session.payment_status === 'paid') {
+          dbRun(`UPDATE orders SET status = 'paid', stripe_payment_intent = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            [session.payment_intent, order.id]);
+          order.status = 'paid';
+          order.stripe_payment_intent = session.payment_intent;
+        }
+      } catch (stripeErr) {
+        console.error('Error verifying with Stripe:', stripeErr.message);
+        // Continue with current order data if Stripe check fails
+      }
+    }
+    
     res.json(order);
   } catch (error) {
     console.error('Error fetching order:', error);
@@ -419,6 +459,7 @@ app.post('/api/create-donation-session', async (req, res) => {
            VALUES (?, ?, ?, ?, ?)`,
       [donationId, donorName || 'Anonymous', donorEmail, amountInCents, message || null]);
     
+    const stripe = getStripe();
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       mode: 'payment',
@@ -450,13 +491,32 @@ app.post('/api/create-donation-session', async (req, res) => {
   }
 });
 
-// Get donation by session ID
-app.get('/api/donations/session/:sessionId', (req, res) => {
+// Get donation by session ID - also verifies payment status with Stripe
+app.get('/api/donations/session/:sessionId', async (req, res) => {
   try {
     const donation = dbGet('SELECT * FROM donations WHERE stripe_session_id = ?', [req.params.sessionId]);
     if (!donation) {
       return res.status(404).json({ error: 'Donation not found' });
     }
+    
+    // If donation is still pending, check Stripe for actual payment status
+    if (donation.status === 'pending') {
+      try {
+        const stripe = getStripe();
+        const session = await stripe.checkout.sessions.retrieve(req.params.sessionId);
+        
+        if (session.payment_status === 'paid') {
+          dbRun(`UPDATE donations SET status = 'completed', stripe_payment_intent = ? WHERE id = ?`,
+            [session.payment_intent, donation.id]);
+          donation.status = 'completed';
+          donation.stripe_payment_intent = session.payment_intent;
+        }
+      } catch (stripeErr) {
+        console.error('Error verifying donation with Stripe:', stripeErr.message);
+        // Continue with current donation data if Stripe check fails
+      }
+    }
+    
     res.json({
       ...donation,
       amountFormatted: `$${(donation.amount / 100).toFixed(2)}`
@@ -479,6 +539,92 @@ app.get('/api/donations', requireAuth, (req, res) => {
   } catch (error) {
     console.error('Error fetching donations:', error);
     res.status(500).json({ error: 'Failed to fetch donations' });
+  }
+});
+
+// ============ Settings Routes ============
+
+// Get Stripe publishable key (public - for frontend)
+app.get('/api/settings/stripe-publishable-key', (req, res) => {
+  try {
+    const key = getPublishableKey();
+    res.json({ key: key || null });
+  } catch (error) {
+    console.error('Error fetching publishable key:', error);
+    res.status(500).json({ error: 'Failed to fetch key' });
+  }
+});
+
+// Get all settings (admin - protected)
+app.get('/api/settings', requireAuth, (req, res) => {
+  try {
+    const settings = dbAll('SELECT * FROM settings');
+    // Mask secret keys for security
+    const masked = settings.map(s => ({
+      ...s,
+      value: s.key.includes('secret') ? (s.value ? '••••••••' + s.value.slice(-4) : '') : s.value
+    }));
+    res.json(masked);
+  } catch (error) {
+    console.error('Error fetching settings:', error);
+    res.status(500).json({ error: 'Failed to fetch settings' });
+  }
+});
+
+// Update settings (admin - protected)
+app.post('/api/settings', requireAuth, (req, res) => {
+  try {
+    const { settings } = req.body;
+    
+    if (!settings || !Array.isArray(settings)) {
+      return res.status(400).json({ error: 'Invalid settings format' });
+    }
+    
+    for (const { key, value } of settings) {
+      if (!key) continue;
+      
+      // Skip if value is masked (not changed)
+      if (value && value.startsWith('••••••••')) continue;
+      
+      const existing = dbGet('SELECT * FROM settings WHERE key = ?', [key]);
+      if (existing) {
+        if (value === '' || value === null) {
+          dbRun('DELETE FROM settings WHERE key = ?', [key]);
+        } else {
+          dbRun('UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?', [value, key]);
+        }
+      } else if (value && value !== '') {
+        dbRun('INSERT INTO settings (key, value) VALUES (?, ?)', [key, value]);
+      }
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating settings:', error);
+    res.status(500).json({ error: 'Failed to update settings' });
+  }
+});
+
+// Test Stripe connection (admin - protected)
+app.post('/api/settings/test-stripe', requireAuth, async (req, res) => {
+  try {
+    const { secretKey } = req.body;
+    
+    if (!secretKey) {
+      return res.status(400).json({ error: 'Secret key is required' });
+    }
+    
+    // Test the key by making a simple API call
+    const testStripe = new Stripe(secretKey);
+    await testStripe.balance.retrieve();
+    
+    res.json({ success: true, message: 'Stripe connection successful!' });
+  } catch (error) {
+    console.error('Stripe test failed:', error);
+    res.status(400).json({ 
+      success: false, 
+      error: error.message || 'Invalid Stripe key or connection failed' 
+    });
   }
 });
 

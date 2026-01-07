@@ -3,8 +3,21 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { loadStripe } from '@stripe/stripe-js';
 import './Order.css';
 
-// Replace with your Stripe publishable key
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || 'pk_test_your_key_here');
+// Dynamic Stripe loading
+let stripePromise = null;
+const getStripe = async () => {
+  if (!stripePromise) {
+    try {
+      const response = await fetch('/api/settings/stripe-publishable-key');
+      const data = await response.json();
+      const key = data.key || import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || 'pk_test_your_key_here';
+      stripePromise = loadStripe(key);
+    } catch {
+      stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || 'pk_test_your_key_here');
+    }
+  }
+  return stripePromise;
+};
 
 export default function Order() {
   const { packageId } = useParams();

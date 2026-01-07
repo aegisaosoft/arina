@@ -10,6 +10,17 @@ export default function Admin() {
   const [error, setError] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [selectedDonation, setSelectedDonation] = useState(null);
+  
+  // Settings state
+  const [settings, setSettings] = useState({
+    stripe_publishable_key: '',
+    stripe_secret_key: '',
+    stripe_webhook_secret: ''
+  });
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState(null);
+  const [testingStripe, setTestingStripe] = useState(false);
+  
   const navigate = useNavigate();
 
   const getToken = () => localStorage.getItem('admin_token');
@@ -36,6 +47,7 @@ export default function Admin() {
       }
       fetchOrders();
       fetchDonations();
+      fetchSettings();
     } catch {
       navigate('/login');
     }
@@ -67,11 +79,101 @@ export default function Admin() {
         headers: { 'Authorization': `Bearer ${getToken()}` }
       });
       if (response.status === 401) return;
-      if (!response.ok) throw new Error('Failed to fetch donations');
+      if (!response.ok) {
+        console.error('Failed to fetch donations:', response.status);
+        return;
+      }
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        console.error('Donations API returned non-JSON response');
+        return;
+      }
       const data = await response.json();
       setDonations(data);
     } catch (err) {
       console.error('Error fetching donations:', err);
+    }
+  };
+
+  const fetchSettings = async () => {
+    try {
+      const response = await fetch('/api/settings', {
+        headers: { 'Authorization': `Bearer ${getToken()}` }
+      });
+      if (!response.ok) return;
+      const data = await response.json();
+      
+      const settingsObj = {};
+      data.forEach(s => {
+        settingsObj[s.key] = s.value || '';
+      });
+      setSettings(prev => ({ ...prev, ...settingsObj }));
+    } catch (err) {
+      console.error('Error fetching settings:', err);
+    }
+  };
+
+  const saveSettings = async () => {
+    setSettingsLoading(true);
+    setSettingsMessage(null);
+    
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getToken()}`
+        },
+        body: JSON.stringify({
+          settings: [
+            { key: 'stripe_publishable_key', value: settings.stripe_publishable_key },
+            { key: 'stripe_secret_key', value: settings.stripe_secret_key },
+            { key: 'stripe_webhook_secret', value: settings.stripe_webhook_secret }
+          ]
+        })
+      });
+      
+      if (!response.ok) throw new Error('Failed to save settings');
+      
+      setSettingsMessage({ type: 'success', text: 'Settings saved successfully!' });
+      fetchSettings();
+    } catch (err) {
+      setSettingsMessage({ type: 'error', text: err.message });
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
+
+  const testStripeConnection = async () => {
+    if (!settings.stripe_secret_key || settings.stripe_secret_key.startsWith('••••')) {
+      setSettingsMessage({ type: 'error', text: 'Please enter a valid secret key first' });
+      return;
+    }
+    
+    setTestingStripe(true);
+    setSettingsMessage(null);
+    
+    try {
+      const response = await fetch('/api/settings/test-stripe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getToken()}`
+        },
+        body: JSON.stringify({ secretKey: settings.stripe_secret_key })
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        setSettingsMessage({ type: 'success', text: '✓ Stripe connection successful!' });
+      } else {
+        setSettingsMessage({ type: 'error', text: data.error || 'Connection failed' });
+      }
+    } catch (err) {
+      setSettingsMessage({ type: 'error', text: 'Failed to test connection' });
+    } finally {
+      setTestingStripe(false);
     }
   };
 
@@ -190,6 +292,16 @@ export default function Admin() {
             <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
           </svg>
           Donations ({donations.length})
+        </button>
+        <button 
+          className={`tab-btn ${activeTab === 'settings' ? 'active' : ''}`}
+          onClick={() => { setActiveTab('settings'); setSelectedOrder(null); setSelectedDonation(null); }}
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          Settings
         </button>
       </div>
 
@@ -453,7 +565,104 @@ export default function Admin() {
             )}
           </div>
         </>
-      )}
+      ) : activeTab === 'settings' ? (
+        <div className="settings-container">
+          <div className="settings-card">
+            <div className="settings-header">
+              <div className="settings-icon">
+                <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <rect x="2" y="2" width="20" height="20" rx="2"/>
+                  <path d="M7 10h10M7 14h6"/>
+                </svg>
+              </div>
+              <div>
+                <h2>Stripe Configuration</h2>
+                <p className="settings-subtitle">Configure your Stripe payment keys to process payments</p>
+              </div>
+            </div>
+
+            <div className="settings-form">
+              <div className="form-group">
+                <label className="form-label">
+                  Publishable Key
+                  <span className="key-hint">pk_test_... or pk_live_...</span>
+                </label>
+                <input
+                  type="text"
+                  value={settings.stripe_publishable_key}
+                  onChange={(e) => setSettings(prev => ({ ...prev, stripe_publishable_key: e.target.value }))}
+                  className="form-input"
+                  placeholder="pk_test_xxxxxxxxxxxxx"
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">
+                  Secret Key
+                  <span className="key-hint">sk_test_... or sk_live_...</span>
+                </label>
+                <input
+                  type="password"
+                  value={settings.stripe_secret_key}
+                  onChange={(e) => setSettings(prev => ({ ...prev, stripe_secret_key: e.target.value }))}
+                  className="form-input"
+                  placeholder="sk_test_xxxxxxxxxxxxx"
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">
+                  Webhook Secret (Optional)
+                  <span className="key-hint">whsec_...</span>
+                </label>
+                <input
+                  type="password"
+                  value={settings.stripe_webhook_secret}
+                  onChange={(e) => setSettings(prev => ({ ...prev, stripe_webhook_secret: e.target.value }))}
+                  className="form-input"
+                  placeholder="whsec_xxxxxxxxxxxxx"
+                />
+              </div>
+
+              {settingsMessage && (
+                <div className={`settings-message ${settingsMessage.type}`}>
+                  {settingsMessage.text}
+                </div>
+              )}
+
+              <div className="settings-actions">
+                <button 
+                  onClick={testStripeConnection}
+                  className="btn btn-secondary"
+                  disabled={testingStripe || !settings.stripe_secret_key}
+                >
+                  {testingStripe ? 'Testing...' : 'Test Connection'}
+                </button>
+                <button 
+                  onClick={saveSettings}
+                  className="btn btn-accent"
+                  disabled={settingsLoading}
+                >
+                  {settingsLoading ? 'Saving...' : 'Save Settings'}
+                </button>
+              </div>
+            </div>
+
+            <div className="settings-help">
+              <h3>How to get your Stripe keys</h3>
+              <ol>
+                <li>Go to <a href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noopener noreferrer">Stripe Dashboard → Developers → API keys</a></li>
+                <li>Copy your <strong>Publishable key</strong> (starts with pk_)</li>
+                <li>Copy your <strong>Secret key</strong> (starts with sk_)</li>
+                <li>For webhooks, create an endpoint at <code>/api/webhooks/stripe</code></li>
+              </ol>
+              <p className="warning-text">
+                ⚠️ Use test keys (pk_test_, sk_test_) for development and live keys (pk_live_, sk_live_) for production.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
