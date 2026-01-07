@@ -57,9 +57,13 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Dynamic Stripe initialization - gets key from DB or env
-function getStripe() {
+function getStripeSecretKey() {
   const setting = db ? dbGet('SELECT value FROM settings WHERE key = ?', ['stripe_secret_key']) : null;
-  const secretKey = setting?.value || process.env.STRIPE_SECRET_KEY || 'sk_test_your_key_here';
+  return setting?.value || process.env.STRIPE_SECRET_KEY || 'sk_test_your_key_here';
+}
+
+function getStripe() {
+  const secretKey = getStripeSecretKey();
   return new Stripe(secretKey);
 }
 
@@ -392,14 +396,27 @@ app.get('/api/orders/session/:sessionId', async (req, res) => {
     // If order is still pending, check Stripe for actual payment status
     if (order.status === 'pending') {
       try {
-        const stripe = getStripe();
-        const session = await stripe.checkout.sessions.retrieve(req.params.sessionId);
-        
-        if (session.payment_status === 'paid') {
-          dbRun(`UPDATE orders SET status = 'paid', stripe_payment_intent = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-            [session.payment_intent, order.id]);
-          order.status = 'paid';
-          order.stripe_payment_intent = session.payment_intent;
+        // Only check Stripe if we have a real key configured
+        const secretKey = getStripeSecretKey();
+        if (secretKey && !secretKey.includes('your_key_here')) {
+          const stripe = getStripe();
+          
+          // Add timeout to Stripe request
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Stripe timeout')), 5000)
+          );
+          
+          const session = await Promise.race([
+            stripe.checkout.sessions.retrieve(req.params.sessionId),
+            timeoutPromise
+          ]);
+          
+          if (session.payment_status === 'paid') {
+            dbRun(`UPDATE orders SET status = 'paid', stripe_payment_intent = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+              [session.payment_intent, order.id]);
+            order.status = 'paid';
+            order.stripe_payment_intent = session.payment_intent;
+          }
         }
       } catch (stripeErr) {
         console.error('Error verifying with Stripe:', stripeErr.message);
@@ -521,14 +538,27 @@ app.get('/api/donations/session/:sessionId', async (req, res) => {
     // If donation is still pending, check Stripe for actual payment status
     if (donation.status === 'pending') {
       try {
-        const stripe = getStripe();
-        const session = await stripe.checkout.sessions.retrieve(req.params.sessionId);
-        
-        if (session.payment_status === 'paid') {
-          dbRun(`UPDATE donations SET status = 'completed', stripe_payment_intent = ? WHERE id = ?`,
-            [session.payment_intent, donation.id]);
-          donation.status = 'completed';
-          donation.stripe_payment_intent = session.payment_intent;
+        // Only check Stripe if we have a real key configured
+        const secretKey = getStripeSecretKey();
+        if (secretKey && !secretKey.includes('your_key_here')) {
+          const stripe = getStripe();
+          
+          // Add timeout to Stripe request
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Stripe timeout')), 5000)
+          );
+          
+          const session = await Promise.race([
+            stripe.checkout.sessions.retrieve(req.params.sessionId),
+            timeoutPromise
+          ]);
+          
+          if (session.payment_status === 'paid') {
+            dbRun(`UPDATE donations SET status = 'completed', stripe_payment_intent = ? WHERE id = ?`,
+              [session.payment_intent, donation.id]);
+            donation.status = 'completed';
+            donation.stripe_payment_intent = session.payment_intent;
+          }
         }
       } catch (stripeErr) {
         console.error('Error verifying donation with Stripe:', stripeErr.message);

@@ -20,12 +20,23 @@ export default function DonateSuccess() {
 
   const fetchDonation = async () => {
     try {
-      const response = await fetch(`/api/donations/session/${sessionId}`);
-      if (!response.ok) throw new Error('Donation not found');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 sec timeout
+      
+      const response = await fetch(`/api/donations/session/${sessionId}`, {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        console.error('Donation fetch failed:', response.status);
+        throw new Error('Donation not found');
+      }
       const data = await response.json();
       setDonation(data);
     } catch (err) {
-      setError(err.message);
+      console.error('Error fetching donation:', err);
+      setError(err.name === 'AbortError' ? 'Request timed out' : err.message);
     } finally {
       setLoading(false);
     }
@@ -42,6 +53,7 @@ export default function DonateSuccess() {
     );
   }
 
+  // Show success page even if we couldn't fetch donation details
   return (
     <div className="donate-success-page">
       <div className="success-container">
@@ -61,6 +73,10 @@ export default function DonateSuccess() {
           Your generous donation means the world to me. 
           Your support helps me continue creating and pursuing my passion.
         </p>
+
+        {error && (
+          <p className="error-note">Could not load donation details, but your payment was successful!</p>
+        )}
 
         {donation && (
           <div className="donation-details">

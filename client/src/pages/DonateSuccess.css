@@ -187,3 +187,12 @@
     max-width: none;
   }
 }
+
+.error-note {
+  color: rgba(255, 200, 100, 0.9);
+  font-size: 0.9rem;
+  background: rgba(255, 200, 100, 0.1);
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+}
