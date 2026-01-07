@@ -202,6 +202,7 @@ function dbRun(sql, params = []) {
 
 // Middleware
 const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+
 app.use(cors({
   origin: clientUrl,
   credentials: true
@@ -557,6 +558,39 @@ app.get('/api/donations', requireAuth, (req, res) => {
   } catch (error) {
     console.error('Error fetching donations:', error);
     res.status(500).json({ error: 'Failed to fetch donations' });
+  }
+});
+
+// Clear test data (admin - protected)
+app.delete('/api/admin/clear-data', requireAuth, (req, res) => {
+  try {
+    const { target } = req.query; // 'orders', 'donations', or 'all'
+    
+    let ordersDeleted = 0;
+    let donationsDeleted = 0;
+    
+    if (target === 'orders' || target === 'all') {
+      const orderCount = dbAll('SELECT COUNT(*) as count FROM orders');
+      ordersDeleted = orderCount[0]?.count || 0;
+      dbRun('DELETE FROM orders');
+    }
+    
+    if (target === 'donations' || target === 'all') {
+      const donationCount = dbAll('SELECT COUNT(*) as count FROM donations');
+      donationsDeleted = donationCount[0]?.count || 0;
+      dbRun('DELETE FROM donations');
+    }
+    
+    res.json({ 
+      success: true, 
+      deleted: {
+        orders: ordersDeleted,
+        donations: donationsDeleted
+      }
+    });
+  } catch (error) {
+    console.error('Error clearing data:', error);
+    res.status(500).json({ error: 'Failed to clear data' });
   }
 });
 

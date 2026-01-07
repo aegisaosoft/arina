@@ -21,6 +21,11 @@ export default function Admin() {
   const [settingsMessage, setSettingsMessage] = useState(null);
   const [testingStripe, setTestingStripe] = useState(false);
   
+  // Clear data modal state
+  const [showClearModal, setShowClearModal] = useState(false);
+  const [clearTarget, setClearTarget] = useState(null); // 'orders', 'donations', 'all'
+  const [clearing, setClearing] = useState(false);
+  
   const navigate = useNavigate();
 
   const getToken = () => localStorage.getItem('admin_token');
@@ -174,6 +179,49 @@ export default function Admin() {
       setSettingsMessage({ type: 'error', text: 'Failed to test connection' });
     } finally {
       setTestingStripe(false);
+    }
+  };
+
+  const openClearModal = (target) => {
+    setClearTarget(target);
+    setShowClearModal(true);
+  };
+
+  const closeClearModal = () => {
+    setShowClearModal(false);
+    setClearTarget(null);
+  };
+
+  const clearData = async () => {
+    if (!clearTarget) return;
+    
+    setClearing(true);
+    try {
+      const response = await fetch(`/api/admin/clear-data?target=${clearTarget}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${getToken()}` }
+      });
+      
+      if (!response.ok) throw new Error('Failed to clear data');
+      
+      const data = await response.json();
+      
+      // Refresh data
+      if (clearTarget === 'orders' || clearTarget === 'all') {
+        setOrders([]);
+        setSelectedOrder(null);
+      }
+      if (clearTarget === 'donations' || clearTarget === 'all') {
+        setDonations([]);
+        setSelectedDonation(null);
+      }
+      
+      closeClearModal();
+      alert(`Deleted: ${data.deleted.orders} orders, ${data.deleted.donations} donations`);
+    } catch (err) {
+      alert('Error: ' + err.message);
+    } finally {
+      setClearing(false);
     }
   };
 
@@ -660,9 +708,71 @@ export default function Admin() {
                 ⚠️ Use test keys (pk_test_, sk_test_) for development and live keys (pk_live_, sk_live_) for production.
               </p>
             </div>
+
+            <div className="danger-zone">
+              <h3>⚠️ Danger Zone</h3>
+              <p>Clear test data from the database. This action cannot be undone.</p>
+              <div className="danger-buttons">
+                <button 
+                  className="btn btn-danger"
+                  onClick={() => openClearModal('orders')}
+                >
+                  Clear Orders ({orders.length})
+                </button>
+                <button 
+                  className="btn btn-danger"
+                  onClick={() => openClearModal('donations')}
+                >
+                  Clear Donations ({donations.length})
+                </button>
+                <button 
+                  className="btn btn-danger btn-danger-all"
+                  onClick={() => openClearModal('all')}
+                >
+                  Clear All Data
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       ) : null}
+
+      {/* Clear Data Confirmation Modal */}
+      {showClearModal && (
+        <div className="modal-overlay" onClick={closeClearModal}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div className="modal-icon warning">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+            </div>
+            <h2>Confirm Delete</h2>
+            <p>
+              {clearTarget === 'all' 
+                ? `Are you sure you want to delete ALL data? This will remove ${orders.length} orders and ${donations.length} donations.`
+                : clearTarget === 'orders'
+                ? `Are you sure you want to delete all ${orders.length} orders?`
+                : `Are you sure you want to delete all ${donations.length} donations?`
+              }
+            </p>
+            <p className="modal-warning">This action cannot be undone!</p>
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={closeClearModal}>
+                Cancel
+              </button>
+              <button 
+                className="btn btn-danger" 
+                onClick={clearData}
+                disabled={clearing}
+              >
+                {clearing ? 'Deleting...' : 'Yes, Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
