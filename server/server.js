@@ -309,6 +309,15 @@ app.post('/api/create-checkout-session', async (req, res) => {
         },
         quantity: 1,
       }],
+      // Create invoice for this payment
+      invoice_creation: {
+        enabled: true,
+        invoice_data: {
+          description: `Order for ${pkg.name} Design Package`,
+          metadata: { orderId, packageId },
+          footer: 'Thank you for your business!',
+        },
+      },
       metadata: { orderId, packageId, customerName },
       success_url: `${clientUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${clientUrl}/packages`,
@@ -477,6 +486,15 @@ app.post('/api/create-donation-session', async (req, res) => {
         },
         quantity: 1,
       }],
+      // Create receipt/invoice for donation
+      invoice_creation: {
+        enabled: true,
+        invoice_data: {
+          description: 'Donation - Thank you for your support!',
+          metadata: { donationId, type: 'donation' },
+          footer: 'Thank you for supporting Irene Design Studio!',
+        },
+      },
       metadata: { donationId, donorName: donorName || 'Anonymous', type: 'donation' },
       success_url: `${clientUrl}/donate/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${clientUrl}/donate`,
